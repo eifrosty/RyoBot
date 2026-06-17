@@ -1,4 +1,3 @@
-# Importações
 import os
 import discord
 from discord.ext import commands
@@ -9,36 +8,18 @@ from collections import deque
 import asyncio
 import random
 from concurrent.futures import ProcessPoolExecutor
+from keep_alive import keep_alive
 
-# -------------------------------
-# Configurações Iniciais
-# -------------------------------
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 process_pool = ProcessPoolExecutor()
 
-# --- Lógica de Caminho Dinâmico para o FFmpeg ---
-try:
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-except NameError:
-    script_dir = os.getcwd()
+FFMPEG_PATH = "ffmpeg"
 
-FFMPEG_PATH = os.path.join(script_dir, "bin", "ffmpeg.exe")
-
-if not os.path.exists(FFMPEG_PATH):
-    print(f"ERRO: ffmpeg.exe não foi encontrado no caminho esperado: {FFMPEG_PATH}")
-    exit()
-
-print(f"FFmpeg encontrado com sucesso em: {FFMPEG_PATH}")
-
-# Cores e Estados
 MAIN_COLOR = discord.Color(0x004ee8)
 ERROR_COLOR = discord.Color.red()
 GUILD_STATES = {}
 
-# -------------------------------
-# Classe de Gerenciamento de Estado
-# -------------------------------
 class GuildState:
     def __init__(self, bot_loop):
         self.queue = deque()
@@ -48,7 +29,7 @@ class GuildState:
         self.loop = bot_loop
         self.inactivity_task = None
         self.is_playing = False
-        self.loop_enabled = False # Para o loop da fila
+        self.loop_enabled = False
 
     async def play_next_song(self):
         if self.is_playing: return
@@ -58,7 +39,7 @@ class GuildState:
             self.inactivity_task = None
 
         if not self.queue:
-            if self.loop_enabled and self.current_song: # Lógica de Loop
+            if self.loop_enabled and self.current_song:
                 self.queue.append(self.current_song)
             else:
                 self.current_song = None
@@ -68,7 +49,7 @@ class GuildState:
 
         self.is_playing = True
         song_data = self.queue.popleft()
-        if self.loop_enabled: # Adiciona a música de volta ao final da fila
+        if self.loop_enabled:
             self.queue.append(song_data)
         
         audio_url = song_data['audio_url']
@@ -109,9 +90,6 @@ class GuildState:
             await self.voice_client.disconnect()
             if self.voice_client.guild.id in GUILD_STATES: del GUILD_STATES[self.voice_client.guild.id]
 
-# -------------------------------
-# Funções Auxiliares
-# -------------------------------
 def format_duration(seconds):
     if seconds is None: return "Desconhecida"
     minutes, seconds = divmod(int(seconds), 60)
@@ -136,9 +114,6 @@ async def search_ytdlp(query, is_playlist=False, playlist_limit=0):
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(process_pool, ytdlp_extract_sync, query, ydl_opts)
 
-# -------------------------------
-# Bot e Intents
-# -------------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="r!", intents=intents, help_command=None)
@@ -150,14 +125,8 @@ async def on_ready():
     await bot.tree.sync()
     print(f"{bot.user.name}#{bot.user.discriminator} está online!")
 
-# -------------------------------
-# Handler de Erros de Comando
-# -------------------------------
 @bot.event
 async def on_command_error(ctx, error):
-    """
-    Handler para comandos que não existem ou foram digitados incorretamente com o prefixo.
-    """
     if isinstance(error, commands.CommandNotFound):
         error_quotes = [
             "Tocar baixo eu sei, agora esse comando aí… nunca ouvi falar.",
@@ -170,9 +139,6 @@ async def on_command_error(ctx, error):
     else:
         print(f"Ocorreu um erro de comando não tratado: {error}")
 
-# -------------------------------
-# Lógica dos Comandos
-# -------------------------------
 async def tocar_logic(ctx_or_interaction, song_query: str):
     guild = ctx_or_interaction.guild
     user = ctx_or_interaction.user if isinstance(ctx_or_interaction, discord.Interaction) else ctx_or_interaction.author
@@ -227,8 +193,6 @@ async def tocar_logic(ctx_or_interaction, song_query: str):
             await channel.send(embed=embed)
     else:
         await state.play_next_song()
-
-# ... (O resto do seu código permanece exatamente o mesmo) ...
 
 async def playlist_logic(ctx_or_interaction, playlist_url: str, limit: int = 0):
     guild = ctx_or_interaction.guild
@@ -396,9 +360,6 @@ def get_help_embed():
     embed.set_footer(text="Utilize os comandos slash!")
     return embed
 
-# -------------------------------
-# Handlers dos Comandos
-# -------------------------------
 @bot.tree.command(name="tocar", description="Toca uma música ou a adiciona na fila.")
 @app_commands.describe(musica="Nome ou link da música")
 async def tocar_slash(interaction: discord.Interaction, musica: str):
@@ -432,35 +393,46 @@ async def loop_prefix(ctx):
 
 @bot.tree.command(name="pular", description="Pula para a próxima música da fila.")
 async def pular_slash(interaction: discord.Interaction): await interaction.response.send_message(await pular_logic(interaction.guild))
+
 @bot.command(name="pular", aliases=['s', 'skip'])
 async def pular_prefix(ctx): await ctx.send(await pular_logic(ctx.guild))
+
 @bot.tree.command(name="fila", description="Mostra as próximas músicas na fila.")
 async def fila_slash(interaction: discord.Interaction): await interaction.response.send_message(embed=await fila_logic(interaction.guild))
+
 @bot.command(name="fila", aliases=['q', 'queue'])
 async def fila_prefix(ctx): await ctx.send(embed=await fila_logic(ctx.guild))
+
 @bot.tree.command(name="parar", description="Para a música, limpa a fila e desconecta.")
 async def parar_slash(interaction: discord.Interaction): await interaction.response.send_message(await parar_logic(interaction.guild))
+
 @bot.command(name="parar", aliases=['stop', 'disconnect', 'dc'])
 async def parar_prefix(ctx): await ctx.send(await parar_logic(ctx.guild))
+
 @bot.tree.command(name="pausar", description="Pausa a música atual.")
 async def pausar_slash(interaction: discord.Interaction): await interaction.response.send_message(await pausar_logic(interaction.guild))
+
 @bot.command(name="pausar", aliases=['pause'])
 async def pausar_prefix(ctx): await ctx.send(await pausar_logic(ctx.guild))
+
 @bot.tree.command(name="continuar", description="Continua a tocar a música pausada.")
 async def continuar_slash(interaction: discord.Interaction): await interaction.response.send_message(await continuar_logic(interaction.guild))
+
 @bot.command(name="continuar", aliases=['resume'])
 async def continuar_prefix(ctx): await ctx.send(await continuar_logic(ctx.guild))
+
 @bot.tree.command(name="tocandoagora", description="Mostra qual música está tocando.")
 async def tocandoagora_slash(interaction: discord.Interaction): await interaction.response.send_message(embed=await tocandoagora_logic(interaction.guild), ephemeral=True)
+
 @bot.command(name="tocandoagora", aliases=['np', 'nowplaying'])
 async def tocandoagora_prefix(ctx): await ctx.send(embed=await tocandoagora_logic(ctx.guild))
+
 @bot.tree.command(name="ajuda", description="Mostra todos os comandos disponíveis.")
 async def ajuda_slash(interaction: discord.Interaction): await interaction.response.send_message(embed=get_help_embed(), ephemeral=True)
+
 @bot.command(name="ajuda", aliases=['help'])
 async def ajuda_prefix(ctx): await ctx.send(embed=get_help_embed())
 
-# -------------------------------
-# Executa o Bot
-# -------------------------------
 if __name__ == "__main__":
+    keep_alive()
     bot.run(TOKEN)
